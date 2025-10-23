@@ -2,9 +2,9 @@ import xml.etree.ElementTree as ET
 import csv
 import re
 
-# ====== File paths ======
-input_file = r"C:\Users\nagen\OneDrive\Documents\job_output.xml"
-output_file = r"C:\Users\nagen\OneDrive\Documents\output.csv"
+# ====== Update file paths ======
+input_file = r"C:\Users\Nagendra\Documents\job_output.xml"
+output_file = r"C:\Users\Nagendra\Documents\output.csv"
 
 # ====== Parse XML ======
 tree = ET.parse(input_file)
@@ -12,41 +12,46 @@ root = tree.getroot()
 
 data = []
 
-# ====== Traverse to all <Error> nodes ======
-for error in root.findall(".//Error"):
-    cdata_text = error.text
-    if not cdata_text:
-        continue
+# ====== Traverse all <Error> nodes ======
+for step in root.findall(".//step"):
+    step_number = step.attrib.get("number", "")
+    for action in step.findall(".//Action"):
+        action_number = action.attrib.get("number", "")
+        for engine in action.findall(".//Engine"):
+            for error in engine.findall("Error"):
+                cdata_text = error.text
+                if not cdata_text:
+                    continue
 
-    # Clean up whitespace
-    cdata_text = cdata_text.strip()
+                # Normalize whitespace
+                cdata_text = cdata_text.strip()
 
-    # Split multiple logical keys inside one <Error>
-    # Each block starts with 'key: Logical key:'
-    blocks = re.split(r"key:\s*Logical key:", cdata_text)
-    
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
+                # Split multiple logical keys inside one <Error>
+                blocks = re.split(r'(?=key:\s*Logical key:)', cdata_text, flags=re.IGNORECASE)
 
-        # Add back 'key: Logical key:' to simplify regex
-        block = "key: Logical key:" + block
+                for block in blocks:
+                    block = block.strip()
+                    if not block:
+                        continue
 
-        # Extract fields
-        grgrp_match = re.search(r"grgrp\s*=\s*(\d+)", block)
-        proiv_match = re.search(r"proiv\s*=\s*(\d+)", block)
-        errmsg_match = re.search(r"Error message:\s*(.*?)\s*Solution:", block, re.DOTALL)
-        solution_match = re.search(r"Solution:\s*(.*)", block, re.DOTALL)
+                    # Extract fields
+                    grgrp_match = re.search(r"grgrp\s*=\s*(\d+)", block)
+                    proiv_match = re.search(r"proiv\s*=\s*(\d+)", block)
+                    errmsg_match = re.search(r"Error message:\s*(.*?)(?:Solution:|$)", block, re.DOTALL | re.IGNORECASE)
+                    solution_match = re.search(r"Solution:\s*(.*?)(?:\n|$)", block, re.DOTALL | re.IGNORECASE)
 
-        if grgrp_match and proiv_match:
-            grgrp = grgrp_match.group(1)
-            proiv = proiv_match.group(1)
-            errmsg = errmsg_match.group(1).strip() if errmsg_match else ""
-            solution = solution_match.group(1).strip() if solution_match else ""
+                    if grgrp_match and proiv_match:
+                        grgrp = grgrp_match.group(1)
+                        proiv = proiv_match.group(1)
+                        errmsg = errmsg_match.group(1).strip() if errmsg_match else ""
+                        solution = solution_match.group(1).strip() if solution_match else ""
 
-            print(f"Found: grgrp={grgrp}, proiv={proiv}, Error='{errmsg}', Solution='{solution}'")
-            data.append([grgrp, proiv, errmsg, solution])
+                        # Skip empty solution lines like 'Hello'
+                        solution = solution.splitlines()[0].strip()
+
+                        data.append([grgrp, proiv, errmsg, solution])
+
+                        print(f"Step={step_number}, Action={action_number}, grgrp={grgrp}, proiv={proiv}, Error='{errmsg}', Solution='{solution}'")
 
 # ====== Write to CSV ======
 if data:
