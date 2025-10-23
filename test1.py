@@ -1,44 +1,59 @@
-import re
+import xml.etree.ElementTree as ET
 import csv
+import re
 
-# ====== Update file paths ======
-input_file = r"C:\Users\Nagendra\Documents\job_output.xml"
-output_file = r"C:\Users\Nagendra\Documents\output.csv"
+# ====== File paths ======
+input_file = r"C:\Users\nagen\OneDrive\Documents\job_output.xml"
+output_file = r"C:\Users\nagen\OneDrive\Documents\output.csv"
 
-# Read the XML file as text
-with open(input_file, "r", encoding="utf-8", errors="ignore") as f:
-    xml_text = f.read()
+# ====== Parse XML ======
+tree = ET.parse(input_file)
+root = tree.getroot()
 
-# Extract all <Error> ... </Error> blocks (even multiline)
-error_blocks = re.findall(r"<Error.*?>(.*?)</Error>", xml_text, flags=re.DOTALL | re.IGNORECASE)
+data = []
 
-rows = []
+# ====== Traverse to all <Error> nodes ======
+for error in root.findall(".//Error"):
+    cdata_text = error.text
+    if not cdata_text:
+        continue
 
-for block in error_blocks:
-    # Clean up CDATA and unnecessary characters
-    text = re.sub(r"<!\[CDATA\[|\]\]>", "", block, flags=re.IGNORECASE).strip()
+    # Clean up whitespace
+    cdata_text = cdata_text.strip()
 
-    # Find all individual error entries (there might be multiple inside same <Error>)
-    entries = re.split(r"(?=key:)", text)  # split wherever "key:" starts
-    for entry in entries:
-        grgrp_match = re.search(r"grgrp\s*=\s*(\d+)", entry)
-        proiv_match = re.search(r"proiv\s*=\s*(\d+)", entry)
-        error_msg_match = re.search(r"Error message:\s*(.*)", entry)
-        solution_match = re.search(r"Solution:\s*(.*)", entry)
+    # Split multiple logical keys inside one <Error>
+    # Each block starts with 'key: Logical key:'
+    blocks = re.split(r"key:\s*Logical key:", cdata_text)
+    
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
 
-        # Only add if both grgrp and proiv exist
+        # Add back 'key: Logical key:' to simplify regex
+        block = "key: Logical key:" + block
+
+        # Extract fields
+        grgrp_match = re.search(r"grgrp\s*=\s*(\d+)", block)
+        proiv_match = re.search(r"proiv\s*=\s*(\d+)", block)
+        errmsg_match = re.search(r"Error message:\s*(.*?)\s*Solution:", block, re.DOTALL)
+        solution_match = re.search(r"Solution:\s*(.*)", block, re.DOTALL)
+
         if grgrp_match and proiv_match:
-            rows.append({
-                "grgrp": grgrp_match.group(1).strip(),
-                "proiv": proiv_match.group(1).strip(),
-                "Error message": (error_msg_match.group(1).strip() if error_msg_match else ""),
-                "Solution": (solution_match.group(1).strip() if solution_match else "")
-            })
+            grgrp = grgrp_match.group(1)
+            proiv = proiv_match.group(1)
+            errmsg = errmsg_match.group(1).strip() if errmsg_match else ""
+            solution = solution_match.group(1).strip() if solution_match else ""
 
-# Write output to CSV
-with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=["grgrp", "proiv", "Error message", "Solution"])
-    writer.writeheader()
-    writer.writerows(rows)
+            print(f"Found: grgrp={grgrp}, proiv={proiv}, Error='{errmsg}', Solution='{solution}'")
+            data.append([grgrp, proiv, errmsg, solution])
 
-print(f"✅ Extraction complete! {len(rows)} record(s) written to {output_file}")
+# ====== Write to CSV ======
+if data:
+    with open(output_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["grgrp", "proiv", "Error message", "Solution"])
+        writer.writerows(data)
+    print(f"\n✅ Extraction complete! {len(data)} rows saved to: {output_file}")
+else:
+    print("\n❌ No valid records found.")
